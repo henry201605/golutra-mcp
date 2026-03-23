@@ -221,10 +221,11 @@ export class ContextStore {
   resolveCommandContext(nextValues: CommandContextInput = {}): RuntimeContextSnapshot {
     const explicit = normalizeNonEmptyString(nextValues.workspacePath);
     const cached = this.context.workspacePath;
-    // Prefer explicit > valid cached > CWD discovery
-    let workspacePath = explicit ?? cached;
+    const discovered = discoverWorkspacePath(process.cwd());
+    // Prefer explicit > CWD discovery (detects workspace switch) > valid cached
+    let workspacePath = explicit ?? discovered ?? cached;
     if (workspacePath && !existsSync(path.join(workspacePath, ".golutra"))) {
-      workspacePath = explicit ?? discoverWorkspacePath(process.cwd()) ?? cached;
+      workspacePath = explicit ?? cached;
     }
     return {
       cliPath:

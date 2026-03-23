@@ -100,11 +100,29 @@ export function resolveDefaultCliPath(env, options = {}) {
     const pathModule = getPathModule(platform);
     return (candidates.find((candidatePath) => pathModule.isAbsolute(candidatePath) && pathExists(candidatePath)) ?? fallbackCommand);
 }
+/**
+ * Walk up from `startDir` looking for a directory that contains `.golutra/`.
+ * Returns the first match, or `undefined` if the filesystem root is reached.
+ */
+export function discoverWorkspacePath(startDir, pathExists = existsSync) {
+    let current = path.resolve(startDir);
+    const root = path.parse(current).root;
+    while (true) {
+        if (pathExists(path.join(current, ".golutra"))) {
+            return current;
+        }
+        if (current === root) {
+            return undefined;
+        }
+        current = path.dirname(current);
+    }
+}
 export function createInitialContext(env) {
+    const explicit = normalizeNonEmptyString(env.GOLUTRA_WORKSPACE_PATH);
     return {
         cliPath: resolveDefaultCliPath(env),
         profile: normalizeProfile(env.GOLUTRA_PROFILE),
-        workspacePath: normalizeNonEmptyString(env.GOLUTRA_WORKSPACE_PATH),
+        workspacePath: explicit ?? discoverWorkspacePath(process.cwd()),
         timeoutMs: normalizeTimeout(env.GOLUTRA_COMMAND_TIMEOUT_MS)
     };
 }
@@ -136,11 +154,18 @@ export class ContextStore {
         return this.getSnapshot();
     }
     resolveCommandContext(nextValues = {}) {
+        const explicit = normalizeNonEmptyString(nextValues.workspacePath);
+        const cached = this.context.workspacePath;
+        const discovered = discoverWorkspacePath(process.cwd());
+        // Prefer explicit > CWD discovery (detects workspace switch) > valid cached
+        let workspacePath = explicit ?? discovered ?? cached;
+        if (workspacePath && !existsSync(path.join(workspacePath, ".golutra"))) {
+            workspacePath = explicit ?? cached;
+        }
         return {
             cliPath: normalizeNonEmptyString(nextValues.cliPath) ?? this.context.cliPath,
             profile: nextValues.profile ?? this.context.profile,
-            workspacePath: normalizeNonEmptyString(nextValues.workspacePath) ??
-                this.context.workspacePath,
+            workspacePath,
             timeoutMs: typeof nextValues.timeoutMs === "number"
                 ? normalizeTimeout(nextValues.timeoutMs)
                 : this.context.timeoutMs
